@@ -1,0 +1,6 @@
+etc/init.d/*
+sbin/*
+usr/bin/*
+usr/sbin/*
+usr/share/man/*
+vendor/common/51-ocfs2.rules /lib/udev/rules.d/

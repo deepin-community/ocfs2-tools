@@ -1,0 +1,4 @@
+register_printf_specifier.patch
+cross_build.patch
+pkg_config_libaio.patch
+init_scripts.patch

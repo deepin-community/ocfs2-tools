@@ -1,0 +1,48 @@
+Description: Update init scripts for Debian
+ Fix lintian warnings reported for the init scripts.
+Author: Valentin Vidic <vvidic@debian.org>
+Last-Update: 2021-08-28
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/vendor/common/o2cb.init.sh
++++ b/vendor/common/o2cb.init.sh
+@@ -6,10 +6,10 @@
+ #
+ ### BEGIN INIT INFO
+ # Provides: o2cb
+-# Required-Start: $network
++# Required-Start: $network $local_fs
+ # Should-Start:
+-# Required-Stop:
+-# Default-Start: 2 3 5
++# Required-Stop: $local_fs $network
++# Default-Start: 2 3 4 5
+ # Default-Stop:
+ # Short-Description: Load O2CB cluster services at system boot.
+ # Description: Load O2CB cluster services at system boot.
+--- a/vendor/common/ocfs2.init
++++ b/vendor/common/ocfs2.init
+@@ -7,11 +7,11 @@
+ #
+ ### BEGIN INIT INFO
+ # Provides: ocfs2
+-# Required-Start: $network o2cb
+-# Required-Stop: 
++# Required-Start: $network $local_fs o2cb
++# Required-Stop: $network $local_fs o2cb
+ # X-UnitedLinux-Should-Start:
+ # X-UnitedLinux-Should-Stop:
+-# Default-Start:  2 3 5
++# Default-Start:  2 3 4 5
+ # Default-Stop:
+ # Short-Description: Mount OCFS2 volumes at boot.
+ # Description:  Mount OCFS2 volumes at boot.
+@@ -68,6 +68,8 @@
+     rc_exit
+ }
+ else
++. /lib/lsb/init-functions
++
+ init_status()
+ {
+     return 0

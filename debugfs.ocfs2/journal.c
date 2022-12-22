@@ -1,0 +1,157 @@
+/* -*- mode: c; c-basic-offset: 8; -*-
+ * vim: noexpandtab sw=8 ts=8 sts=0:
+ *
+ * journal.c
+ *
+ * reads the journal file
+ *
+ * Copyright (C) 2004, 2007 Oracle.  All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+ * Boston, MA  02110-1301 USA.
+ *
+ * Authors: Sunil Mushran, Mark Fasheh
+ */
+
+#include "main.h"
+
+extern struct dbgfs_gbls gbls;
+
+static void scan_journal(FILE *out, journal_superblock_t *jsb, char *buf,
+			 int len, uint64_t *blocknum, uint64_t *last_unknown)
+{
+	char *block;
+	char *p;
+	enum ocfs2_block_type type;
+	journal_header_t *header;
+
+	p = buf;
+
+	while (len) {
+		block = p;
+		header = (journal_header_t *)block;
+		if (header->h_magic == ntohl(JBD2_MAGIC_NUMBER)) {
+			if (*last_unknown) {
+				dump_jbd_unknown(out, *last_unknown, *blocknum);
+				*last_unknown = 0;
+			}
+			dump_jbd_block(out, jsb, header, *blocknum);
+		} else {
+			type = ocfs2_detect_block(block);
+			if (type == OCFS2_BLOCK_UNKNOWN) {
+				if (*last_unknown == 0)
+					*last_unknown = *blocknum;
+			} else {
+				if (*last_unknown) {
+					dump_jbd_unknown(out, *last_unknown,
+							 *blocknum);
+					*last_unknown = 0;
+				}
+				dump_jbd_metadata(out, type, block, *blocknum);
+			}
+		}
+		(*blocknum)++;
+		p += gbls.fs->fs_blocksize;
+		len -= gbls.fs->fs_blocksize;
+	}
+
+	return;
+}
+
+errcode_t read_journal(ocfs2_filesys *fs, uint64_t blkno, FILE *out)
+{
+	char *buf = NULL;
+	char *jsb_buf = NULL;
+	char *p;
+	uint64_t blocknum;
+	uint64_t len;
+	uint64_t offset;
+	uint32_t got;
+	uint64_t last_unknown = 0;
+	uint32_t buflen = 1024 * 1024;
+	int buflenbits;
+	ocfs2_cached_inode *ci = NULL;
+	errcode_t ret;
+	journal_superblock_t *jsb;
+
+	ret = ocfs2_read_cached_inode(fs, blkno, &ci);
+	if (ret) {
+		com_err(gbls.cmd, ret, "while reading inode %"PRIu64, blkno);
+		goto bail;
+	}
+
+	ret = ocfs2_malloc_block(fs->fs_io, &jsb_buf);
+	if (ret) {
+		com_err(gbls.cmd, ret,
+			"while allocating journal superblock buffer");
+		goto bail;
+	}
+
+	buflenbits = buflen >>
+			OCFS2_RAW_SB(gbls.fs->fs_super)->s_blocksize_bits;
+	ret = ocfs2_malloc_blocks(fs->fs_io, buflenbits, &buf);
+	if (ret) {
+		com_err(gbls.cmd, ret, "while allocating %u bytes", buflen);
+		goto bail;
+	}
+
+	offset = 0;
+	blocknum = 0;
+	jsb = (journal_superblock_t *)jsb_buf;
+	while (1) {
+		ret = ocfs2_file_read(ci, buf, buflen, offset, &got);
+		if (ret) {
+			com_err(gbls.cmd, ret, "while reading journal");
+			goto bail;
+		};
+
+		if (got == 0)
+			break;
+
+		p = buf;
+		len = got;
+
+		if (offset == 0) {
+			memcpy(jsb_buf, buf, fs->fs_blocksize);
+			dump_jbd_superblock(out, jsb);
+			ocfs2_swap_journal_superblock(jsb);
+			blocknum++;
+			p += fs->fs_blocksize;
+			len -= fs->fs_blocksize;
+		}
+
+		scan_journal(out, jsb, p, len, &blocknum, &last_unknown);
+
+		if (got < buflen)
+			break;
+		offset += got;
+	}
+
+	if (last_unknown) {
+		dump_jbd_unknown(out, last_unknown, blocknum);
+		last_unknown = 0;
+	}
+
+bail:
+	if (jsb_buf)
+		ocfs2_free(&jsb_buf);
+	if (buf)
+		ocfs2_free(&buf);
+	if (ci)
+		ocfs2_free_cached_inode(fs, ci);
+
+	return ret;
+}
+

@@ -1,0 +1,2 @@
+ocfs2-tools: missing-systemd-service-for-init.d-script etc/init.d/o2cb o2cb
+ocfs2-tools: missing-systemd-service-for-init.d-script etc/init.d/ocfs2 ocfs2
